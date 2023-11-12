@@ -1,0 +1,306 @@
+import java.util.Arrays;
+
+public class SimplexTwoPhase {
+
+    
+        public static void main(String[] args) {
+        double[][] constraints = {
+                { 2, 3 },
+                { -1, -1 }
+        };
+        double[] objectiveCoefficients = { 3, 4 };
+        double[] constraintConstants = { 10, -4 };
+        String[] constraintOperators = { "<=", ">=" };
+        boolean isMinimization = false;
+
+        double[] solution = SimplexTwoPhase.solveTwoPhaseSimplex(constraints, objectiveCoefficients,
+                constraintConstants,
+                constraintOperators, isMinimization);
+
+        if (solution != null) {
+            System.out.println("Solution optimale : " + Arrays.toString(solution));
+        }
+    }
+    
+
+    public static double[] solveTwoPhaseSimplex(double[][] constraints, double[] objectiveCoefficients,
+            double[] constraintConstants, String[] constraintOperators, boolean isMinimization) {
+        int numVariables = objectiveCoefficients.length;
+        int numConstraints = constraints.length;
+
+        // Phase 1: Ajouter des variables artificielles et maximiser leur somme
+        double[][] tableau = createInitialTableau(constraints, constraintConstants, constraintOperators);
+        tableau = performPhaseOne(tableau);
+
+        if (tableau == null || tableau[tableau.length - 1][tableau[0].length - 1] < 0) {
+            System.out.println("Le problème est infaisable.");
+            return null;
+        }
+
+        // Phase 2: Retirer les variables artificielles et résoudre le problème
+        // d'optimisation
+        tableau = removeArtificialVariables(tableau);
+        tableau = performSimplex(tableau, isMinimization);
+
+        /*if (tableau == null || tableau[tableau.length - 1][tableau[0].length - 1] < 0) {
+            System.out.println("Le problème est non borné.");
+            return null;
+        }*/
+
+        // Extraire les valeurs des variables dans la solution optimale
+        double[] solution = new double[numVariables];
+        for (int i = 0; i < numVariables; i++) {
+            int varIndex = findBasicVariable(tableau, i);
+            if (varIndex != -1) {
+                solution[i] = tableau[varIndex][tableau[0].length - 1];
+            }
+        }
+
+        return solution;
+    }
+
+    public static double[][] createInitialTableau(double[][] constraints, double[] constraintConstants,
+            String[] constraintOperators) {
+        int numVariables = constraints[0].length;
+        int numConstraints = constraints.length;
+
+        double[][] tableau = new double[numConstraints + 1][numVariables + numConstraints + 1];
+
+        for (int i = 0; i < numConstraints; i++) {
+            for (int j = 0; j < numVariables; j++) {
+                tableau[i][j] = constraints[i][j];
+            }
+            tableau[i][numVariables + i] = 1;
+            tableau[i][tableau[0].length - 1] = constraintConstants[i];
+        }
+
+        for (int i = 0; i < numVariables; i++) {
+            tableau[numConstraints][i] = 0 - tableau[numConstraints][i];
+        }
+        tableau[numConstraints][tableau[0].length - 1] = 0;
+
+        return tableau;
+    }
+
+    public static double[][] performPhaseOne(double[][] tableau) {
+        int numVariables = tableau[0].length;
+        int numConstraints = tableau.length - 1;
+
+        int[] basicVariables = new int[numConstraints];
+        int[] nonBasicVariables = new int[numVariables - numConstraints - 1];
+
+        for (int i = 0; i < numConstraints; i++) {
+            basicVariables[i] = i + numVariables - numConstraints - 1;
+        }
+
+        for (int i = 0; i < numVariables - numConstraints - 1; i++) {
+            nonBasicVariables[i] = i;
+        }
+
+        tableau = performSimplex(tableau, true, basicVariables, nonBasicVariables);
+
+        return tableau;
+    }
+
+    public static double[][] removeArtificialVariables(double[][] tableau) {
+        int numVariables = tableau[0].length;
+        int numConstraints = tableau.length - 1;
+
+        int[] basicVariables = new int[numConstraints];
+        int[] nonBasicVariables = new int[numVariables - numConstraints - 1];
+
+        int nonBasicIndex = 0;
+        for (int i = 0; i < numVariables; i++) {
+            if (isNonBasicVariable(tableau, i)) {
+                nonBasicVariables[nonBasicIndex] = i;
+                nonBasicIndex++;
+            }
+        }
+
+        int basicIndex = 0;
+        for (int i = 0; i < numConstraints; i++) {
+            if (isBasicVariable(tableau, i)) {
+                basicVariables[basicIndex] = i;
+                basicIndex++;
+            }
+        }
+
+        double[][] newTableau = new double[numConstraints][numVariables - numConstraints ];
+
+        for (int i = 0; i < numConstraints; i++) {
+            for (int j = 0; j < numVariables - numConstraints - 1; j++) {
+                int variableIndex = nonBasicVariables[j];
+                newTableau[i][j] = tableau[i][variableIndex];
+            }
+            newTableau[i][numVariables - numConstraints - 1] = tableau[i][numVariables - 1];
+        }
+
+        return newTableau;
+    }
+
+    public static double[][] performSimplex(double[][] tableau, boolean isMinimization) {
+        int numVariables = tableau[0].length;
+        int numConstraints = tableau.length - 1;
+
+        int[] basicVariables = new int[numConstraints];
+        int[] nonBasicVariables = new int[numVariables - numConstraints - 1];
+
+        int nonBasicIndex = 0;
+        for (int i = 0; i < numVariables; i++) {
+            if (isNonBasicVariable(tableau, i)) {
+                nonBasicVariables[nonBasicIndex] = i;
+                nonBasicIndex++;
+            }
+        }
+
+        int basicIndex = 0;
+        for (int i = 0; i < numConstraints; i++) {
+            if (isBasicVariable(tableau, i)) {
+                basicVariables[basicIndex] = i;
+                basicIndex++;
+            }
+        }
+
+        return performSimplex(tableau, isMinimization, basicVariables, nonBasicVariables);
+    }
+
+    public static double[][] performSimplex(double[][] tableau, boolean isMinimization, int[] basicVariables,
+            int[] nonBasicVariables) {
+        int numVariables = tableau[0].length;
+        int numConstraints = tableau.length - 1;
+
+        while (true) {
+            int enteringColumn = findEnteringColumn(tableau, isMinimization, nonBasicVariables);
+            if (enteringColumn == -1) {
+                break; // Solution optimale atteinte
+            }
+
+            int leavingRow = findLeavingRow(tableau, enteringColumn, basicVariables);
+            if (leavingRow == -1) {
+                System.out.println("Le problème est non borné.");
+                return null;
+            }
+
+            pivot(tableau, leavingRow, enteringColumn);
+
+            basicVariables[leavingRow] = enteringColumn;
+            nonBasicVariables[enteringColumn] = -1;
+        }
+
+        return tableau;
+    }
+
+    public static int findEnteringColumn(double[][] tableau, boolean isMinimization, int[] nonBasicVariables) {
+        int numVariables = tableau[0].length;
+        int numConstraints = tableau.length - 1;
+
+        int enteringColumn = -1;
+
+        if (isMinimization) {
+            double minCoeff = 0;
+            for (int j = 0; j < numVariables; j++) {
+                if (isNonBasicVariable(tableau, j) && tableau[numConstraints][j] < minCoeff) {
+                    minCoeff = tableau[numConstraints][j];
+                    enteringColumn = j;
+                }
+            }
+        } else {
+            double maxCoeff = 0;
+            for (int j = 0; j < numVariables; j++) {
+                if (isNonBasicVariable(tableau, j) && tableau[numConstraints][j] > maxCoeff) {
+                    maxCoeff = tableau[numConstraints][j];
+                    enteringColumn = j;
+                }
+            }
+        }
+
+        return enteringColumn;
+    }
+
+    public static int findLeavingRow(double[][] tableau, int enteringColumn, int[] basicVariables) {
+        int numConstraints = tableau.length - 1;
+
+        int leavingRow = -1;
+        double minRatio = Double.MAX_VALUE;
+
+        for (int i = 0; i < numConstraints; i++) {
+            if (isBasicVariable(tableau, i) && tableau[i][enteringColumn] > 0) {
+                double ratio = tableau[i][tableau[0].length - 1] / tableau[i][enteringColumn];
+                if (ratio < minRatio) {
+                    minRatio = ratio;
+                    leavingRow = i;
+                }
+            }
+        }
+
+        return leavingRow;
+    }
+
+    public static void pivot(double[][] tableau, int leavingRow, int enteringColumn) {
+        int numRows = tableau.length;
+        int numColumns = tableau[0].length;
+
+        double pivotElement = tableau[leavingRow][enteringColumn];
+
+        // Diviser la ligne pivot par l'élément pivot
+        for (int j = 0; j < numColumns; j++) {
+            tableau[leavingRow][j] /= pivotElement;
+        }
+
+        // Mise à zéro des autres éléments de la colonne pivot
+        for (int i = 0; i < numRows; i++) {
+            if (i != leavingRow) {
+                double multiplier = tableau[i][enteringColumn];
+                for (int j = 0; j < numColumns; j++) {
+                    tableau[i][j] -= multiplier * tableau[leavingRow][j];
+                }
+            }
+        }
+    }
+
+    public static boolean isNonBasicVariable(double[][] tableau, int variableIndex) {
+        int numConstraints = tableau.length - 1;
+
+        for (int i = 0; i < numConstraints; i++) {
+            if (tableau[i][variableIndex] == 1 && tableau[i][tableau[0].length - 1] == 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isBasicVariable(double[][] tableau, int variableIndex) {
+        int numConstraints = tableau.length - 1;
+
+        for (int i = 0; i < numConstraints; i++) {
+            if (tableau[i][variableIndex] == 1 && tableau[i][tableau[0].length - 1] != 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static int findBasicVariable(double[][] tableau, int variableIndex) {
+        int numConstraints = tableau.length - 1;
+
+        for (int i = 0; i < numConstraints; i++) {
+            if (tableau[i][variableIndex] == 1 && tableau[i][tableau[0].length - 1] != 0) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    public static int findNonBasicVariableIndex(int[] nonBasicVariables, int variableIndex) {
+        for (int i = 0; i < nonBasicVariables.length; i++) {
+            if (nonBasicVariables[i] == variableIndex) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+}
